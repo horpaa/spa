@@ -1,0 +1,202 @@
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum Role {
+  CLIENTE
+  TERAPEUTA
+  ADMIN
+}
+
+enum DayOfWeek {
+  LUNES
+  MARTES
+  MIERCOLES
+  JUEVES
+  VIERNES
+  SABADO
+  DOMINGO
+}
+
+enum ServiceCategory {
+  MASAJES
+  FACIALES
+  CORPORALES
+  NAIL_SPA
+  AROMATERAPIA
+  MAQUILLAJE
+}
+
+enum AppointmentStatus {
+  PENDIENTE
+  CONFIRMADA
+  COMPLETADA
+  CANCELADA
+}
+
+enum PaymentStatus {
+  PENDIENTE
+  PAGADO
+  REEMBOLSADO
+}
+
+enum PaymentMethod {
+  STRIPE
+  MANUAL
+}
+
+enum CouponType {
+  PORCENTAJE
+  FIJO
+}
+
+// ─── Models ──────────────────────────────────────────────────────────────────
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  phone     String?
+  role      Role     @default(CLIENTE)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  therapist    Therapist?
+  appointments Appointment[] @relation("ClientAppointments")
+  reviews      Review[]
+}
+
+model Therapist {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  bio        String?
+  specialty  String[]
+  avatar     String?
+  experience Int      // years of experience
+
+  user         User                    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  availability TherapistAvailability[]
+  blocks       TherapistBlock[]
+  appointments Appointment[]
+  reviews      Review[]
+}
+
+/// Weekly recurring schedule for a therapist
+model TherapistAvailability {
+  id          String    @id @default(cuid())
+  therapistId String
+  dayOfWeek   DayOfWeek
+  startTime   String    // "09:00"
+  endTime     String    // "18:00"
+  isActive    Boolean   @default(true)
+
+  therapist Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade)
+
+  @@unique([therapistId, dayOfWeek])
+}
+
+/// Blocked date ranges (vacations, absences)
+model TherapistBlock {
+  id          String    @id @default(cuid())
+  therapistId String
+  startDate   DateTime  @db.Date
+  endDate     DateTime  @db.Date
+  reason      String?
+
+  therapist Therapist @relation(fields: [therapistId], references: [id], onDelete: Cascade)
+}
+
+model Service {
+  id               String          @id @default(cuid())
+  name             String
+  slug             String          @unique
+  description      String
+  shortDescription String          @default("")
+  icon             String          @default("")
+  category         ServiceCategory
+  price            Decimal         @db.Decimal(10, 2)
+  duration         Int             // minutes
+  image            String?
+  benefits         String[]
+  isPopular        Boolean         @default(false)
+  isActive         Boolean         @default(true)
+  createdAt        DateTime        @default(now())
+
+  appointments Appointment[]
+  reviews      Review[]
+}
+
+model Appointment {
+  id          String            @id @default(cuid())
+  clientId    String
+  therapistId String?
+  serviceId   String
+  couponId    String?
+  date        DateTime          @db.Date
+  startTime   String            // "10:00"
+  endTime     String            // "11:00"
+  status      AppointmentStatus @default(PENDIENTE)
+  notes       String?
+  totalPrice  Decimal           @db.Decimal(10, 2)
+  createdAt   DateTime          @default(now())
+  updatedAt   DateTime          @updatedAt
+
+  client    User       @relation("ClientAppointments", fields: [clientId], references: [id])
+  therapist Therapist? @relation(fields: [therapistId], references: [id])
+  service   Service   @relation(fields: [serviceId], references: [id])
+  coupon    Coupon?   @relation(fields: [couponId], references: [id])
+  payment   Payment?
+  review    Review?
+}
+
+model Payment {
+  id                    String        @id @default(cuid())
+  appointmentId         String        @unique
+  amount                Decimal       @db.Decimal(10, 2)
+  status                PaymentStatus @default(PENDIENTE)
+  method                PaymentMethod
+  stripePaymentIntentId String?
+  paidAt                DateTime?
+  createdAt             DateTime      @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+}
+
+/// One review per completed appointment
+model Review {
+  id            String   @id @default(cuid())
+  appointmentId String   @unique
+  clientId      String
+  therapistId   String
+  serviceId     String
+  rating        Int      // 1–5
+  comment       String?
+  createdAt     DateTime @default(now())
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id])
+  client      User        @relation(fields: [clientId], references: [id])
+  therapist   Therapist   @relation(fields: [therapistId], references: [id])
+  service     Service     @relation(fields: [serviceId], references: [id])
+}
+
+model Coupon {
+  id        String     @id @default(cuid())
+  code      String     @unique
+  type      CouponType
+  discount  Decimal    @db.Decimal(10, 2) // % or fixed amount in MXN
+  maxUses   Int?
+  usedCount Int        @default(0)
+  expiresAt DateTime?
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+
+  appointments Appointment[]
+}
